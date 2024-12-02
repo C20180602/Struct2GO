@@ -1,20 +1,26 @@
+'''
+读取PDB文件, 通过C-alpha原子间的距离小于10来建图
+运行前需要删除data/proteins_edges文件夹
+'''
 from unicodedata import name
 import numpy as np
 import pandas as pd 
 from Bio import SeqIO
 from Bio.PDB.PDBParser import PDBParser
 import os
+import warnings
+from tqdm import tqdm
 
 def _load_cmap(filename, cmap_thresh=10.0):
-        if filename.endswith('.pdb'):
-            D, seq = load_predicted_PDB(filename)
-            A = np.double(D < cmap_thresh)
-            #print(A)
-        S = seq2onehot(seq)
-        S = S.reshape(1, *S.shape)
-        A = A.reshape(1, *A.shape)
+    if filename.endswith('.pdb'):
+        D, seq = load_predicted_PDB(filename)
+        A = np.double(D < cmap_thresh)
+        #print(A)
+    S = seq2onehot(seq)
+    S = S.reshape(1, *S.shape)
+    A = A.reshape(1, *A.shape)
 
-        return A, S, seq
+    return A, S, seq
 
 
 def load_predicted_PDB(pdbfile):
@@ -55,12 +61,12 @@ def seq2onehot(seq):
 
     return seqs_x
 
-for path,dir_list,file_list in os.walk("/home/jiaops/lyjps/data/predicted_struct_protein_data"):  
-    for file_name in file_list:  
-        A, S, seqres = _load_cmap(os.path.join(path, file_name),
-                          cmap_thresh=10.0)
-        print(A.shape)
-        print(len(A[0]))
+# 忽略读取AlphaFold文件时没有PDB ID的警告
+warnings.filterwarnings("ignore")
+os.mkdir("../data/proteins_edges")
+for path,dir_list,file_list in os.walk("/e/chensq/dag-classify/raw_data/HUMAN/pdb"):  
+    for file_name in tqdm(file_list):
+        A, S, seqres = _load_cmap(os.path.join(path, file_name),cmap_thresh=10.0)
         B = np.reshape(A,(-1,len(A[0])))
         result = []
         N = len(B)
@@ -77,7 +83,7 @@ for path,dir_list,file_list in os.walk("/home/jiaops/lyjps/data/predicted_struct
         name = filename[1]
         data = pd.DataFrame(result)
         #index参数设置为False表示不保存行索引,header设置为False表示不保存列索引
-        data.to_csv("/home/jiaops/lyjps/data/proteins_edgs/" + name + ".txt",sep=" ",index=False,header=False)
+        data.to_csv("../data/proteins_edges/" + name + ".txt",sep=" ",index=False,header=False)
         #B_ = matrix2table(B)
         #print(len(A))
         #A_ = matrix2table()
