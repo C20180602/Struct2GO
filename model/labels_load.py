@@ -12,10 +12,12 @@ import os
 import torch
 import matplotlib.pyplot as plt
 import json
+from tqdm import tqdm
 
 # 从PDB中读取seq数据（经过onehot处理）和结构数据，json中只用到了GO数据
 # 这里的文件并不重要，你只需要导入将数据处理为一个字典，格式为 {"P01283":["GO:0002312","GO:0202312",...], }即可
-human_dict = json.loads("/e/chensq/dag-classify/processed_data/HUMAN_protein_info.json")
+with open("/e/chensq/dag-classify/processed_data/HUMAN_protein_info.json","r") as f:
+    human_dict = json.load(f)
 labels={}
 for id in human_dict:
     labels[id] = human_dict[id]['go']
@@ -27,6 +29,7 @@ part=collections.defaultdict(list)
 ###根据规则来提取go term ，并依据其之间的依赖关系构建图谱
 # 只取用is_a和part_of关系
 # 同样，这里的文件也不重要，可以在Gene Ontology上下载
+print("--------------1: go term processing")
 with open('/e/chensq/dag-classify/raw_data/go-basic.obo','r') as fin:
     for line in fin:
         if '[Typedef]' in line:
@@ -46,7 +49,18 @@ with open('/e/chensq/dag-classify/raw_data/go-basic.obo','r') as fin:
 # 把所有关系并入到is_a中，方便处理
 for i in part:
     is_a[i].extend(part[i])
+##划分子空间，每个子空间是一个集合
+bp,mf,cc=set(),set(),set()
+for i in namespace:
+    if namespace[i]=='biological_process':
+        bp.add(i)
+    elif namespace[i]=='molecular_function':
+        mf.add(i)
+    elif namespace[i]=='cellular_component':
+        cc.add(i)
 
+
+print("--------------2: propagate labels")
 # 使用暴力求go_term_set的传递闭包（TODO 可优化）
 def propagate(l):
     while True:
@@ -57,15 +71,17 @@ def propagate(l):
         l.update(temp)
         if len(l)==length:
             return l
-        
+
 # 只选取有GO标签的蛋白质进行数据处理
 # 对于每个蛋白质，求他们功能标签的传递闭包
 pro_with_go={}
-for i in labels:
+for i in tqdm(labels):
     if len(labels[i])>0:
         pro_with_go[i]=propagate(set(labels[i]))
 print("protein_num:",len(labels),"->",len(pro_with_go))
 
+
+print("--------------3: split protein set")
 # TODO: 需要统一文件夹路径
 df=pd.read_csv("../data/protein_list.csv",sep=" ")
 tmp_list=df.values.tolist()
@@ -78,16 +94,6 @@ label_bp=collections.defaultdict(list)
 label_mf=collections.defaultdict(list)
 label_cc=collections.defaultdict(list)
 
-##划分子空间，每个子空间是一个集合
-bp,mf,cc=set(),set(),set()
-for i in namespace:
-    if namespace[i]=='biological_process':
-        bp.add(i)
-    elif namespace[i]=='molecular_function':
-        mf.add(i)
-    elif namespace[i]=='cellular_component':
-        cc.add(i)
-
 # 最终我们选取既有go又有struct_features的蛋白质
 for i in pro_with_go:
     if i in protein_list:
@@ -99,6 +105,8 @@ for i in pro_with_go:
             elif j in cc:
                 label_cc[i].append(j)
 
+
+print("--------------4: read all kinds of features")
 # 处理蛋白质氨基酸序列的独热编码
 # with open('../processed_data/protein_node2onehot','rb')as f:
 #     protein_node2onehot = pickle.load(f)
@@ -111,6 +119,7 @@ print("protein_node2vec:",len(protein_node2vec))
 # 处理蛋白质氨基酸序列的SeqVec特征
 with open('../processed_data/dict_sequence_feature','rb')as f:
     seqvec_feature_dic = pickle.load(f)
+print("seqvec_feature_dic:",len(seqvec_feature_dic))
 
 # 处理蛋白质的结构信息
 graph_dic = {}
@@ -120,7 +129,8 @@ for path,dir_list,file_list in os.walk("../data/proteins_edges"):
         trace = os.path.join(path, file_name)
         name = file_name.split(".")[0]
         if trace.endswith(".txt"):
-            graph_dic[name] = pd.read_csv(trace, names=['Src','Dst'],header=None, sep=" ")       
+            graph_dic[name] = pd.read_csv(trace, names=['Src','Dst'],header=None, sep=" ")
+print("graph_dic:",len(graph_dic))
 
 def goterm2idx(term_set):
     term_dict={v:k for k,v in enumerate(term_set)}
@@ -147,7 +157,9 @@ def labels2onehot(protein2func_label,index):
 # seq_feature_dic {protein_id:蛋白质序列的特征} 字典
 # graph_dic {protein_id:蛋白质氨基酸接触图的边} 字典
 def label_process(label,graph_node_feature_dic,seq_feature_dic,graph_dic,ns_type,go_dependency):
+    print("now processing: ",ns_type)
     # 第一步: 过滤出go_term中出现次数大于thresh的标签
+    print("----step 1----")
     counter=collections.Counter()
     for i in label:
         counter.update(label[i])
@@ -161,17 +173,20 @@ def label_process(label,graph_node_feature_dic,seq_feature_dic,graph_dic,ns_type
     print("total_process",ns_type,"final_go_term_size",len(final_go))
     
     # 第二步：对筛选出来的go_term进行编号
+    print("----step 2----")
     term2idx=goterm2idx(final_go)
     with open('../processed_data/'+ns_type+'_term2idx.json','w') as f:
         json.dump(term2idx,f,indent=4)
 
     # 第三步：求出每个蛋白质的功能标签序列对应的multihot向量, 并且把label筛选一遍
     # 其实这里用onehot并不严谨，应该称为multi-hot
+    print("----step 3----")
     pro2func_multi_hot,pro2func_filtered = labels2onehot(label,term2idx)
     final_protein_list=list(pro2func_filtered.keys())
 
     # 第四步：作图统计
     # 统计每个list的长度
+    print("----step 4----")
     lengths = [len(value) for value in pro2func_filtered.values()]
     plt.gca().set_prop_cycle(None)
     # 绘制直方图
@@ -183,7 +198,7 @@ def label_process(label,graph_node_feature_dic,seq_feature_dic,graph_dic,ns_type
     plt.ylabel('GO term Number')
     plt.title(ns_type+'-go')
     plt.legend(loc='upper right')  # 显示图例
-    plt.savefig('histogram_'+ns_type+'.svg', format='svg')
+    plt.savefig('../processed_data/histogram_'+ns_type+'.png', format='png')
     # plt.show()
 
     # 将字典转换为一对一的键值对
@@ -191,19 +206,23 @@ def label_process(label,graph_node_feature_dic,seq_feature_dic,graph_dic,ns_type
     # 创建DataFrame
     df = pd.DataFrame(pairs, columns=['Protein', ns_type+'-go'])
     # 保存为CSV文件
-    df.to_csv('gos_'+ns_type+'.csv', index=False)
+    df.to_csv('../processed_data/gos_'+ns_type+'.csv', index=False)
 
     # 第五步：输出完成处理之后的数据
+    print("----step 5----")
     emb_graph = {}
     emb_seq_feature = {}
     emb_label = {}
-    for i in final_protein_list:
+    for i in tqdm(final_protein_list):
         # 构建蛋白质结构图，氨基酸作为节点，读取节点特征
         edges_data = graph_dic[i]
         src = edges_data['Src'].to_numpy()
         dst = edges_data['Dst'].to_numpy()
         g = dgl.graph((src, dst))
         g = dgl.add_self_loop(g)
+        # 因为蛋白质数据有更新，部分数据长度已经无法匹配上了
+        if graph_node_feature_dic[i].shape[0] != g.num_nodes():
+            continue
         g.ndata['feature'] = torch.tensor(graph_node_feature_dic[i], dtype=torch.float32)
 
         # 功能标签的shape为[1,过滤后的标签数]
@@ -211,9 +230,10 @@ def label_process(label,graph_node_feature_dic,seq_feature_dic,graph_dic,ns_type
         multihot_go = torch.unsqueeze(multihot_go,0)
 
         # 读取序列特征
-        emb_seq_feature[i] = torch.tensor(seq_feature_dic[i].astype(np.float32))
+        emb_seq_feature[i] = torch.tensor(seq_feature_dic[i], dtype=torch.float32)
         emb_graph[i] = g
         emb_label[i] = multihot_go
+    print(ns_type,"dataset size:",len(emb_graph))
     with open('../processed_data/emb_graph_'+ns_type,'wb')as f:
         pickle.dump(emb_graph,f)
     with open('../processed_data/emb_seq_feature_'+ns_type,'wb')as f:
@@ -221,6 +241,8 @@ def label_process(label,graph_node_feature_dic,seq_feature_dic,graph_dic,ns_type
     with open('../processed_data/emb_label_'+ns_type,'wb')as f:
         pickle.dump(emb_label,f)
     
+    # 第六步：输出GO graph
+    print("----step 6----")
     go_graph = dgl.DGLGraph()
     go_graph = dgl.add_self_loop(go_graph)
     go_graph.add_nodes(len(final_go))
@@ -232,11 +254,12 @@ def label_process(label,graph_node_feature_dic,seq_feature_dic,graph_dic,ns_type
             for parent in parents:
                 if parent in term_to_idx:
                     parent_idx = term_to_idx[parent]
-                    go_graph.add_edge(child_idx, parent_idx)
+                    go_graph.add_edges(torch.tensor([child_idx]), torch.tensor([parent_idx]))
 
     with open('../processed_data/label_'+ns_type+'_network','wb')as f:
         pickle.dump(go_graph,f)  
 
+print("--------------5: process all kinds of files")
 label_process(label_bp,protein_node2vec,seqvec_feature_dic,graph_dic,"bp",is_a)
 label_process(label_cc,protein_node2vec,seqvec_feature_dic,graph_dic,"cc",is_a)
 label_process(label_mf,protein_node2vec,seqvec_feature_dic,graph_dic,"mf",is_a)

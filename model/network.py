@@ -32,14 +32,12 @@ class SAGNetworkHierarchical(torch.nn.Module):
             _o_dim = hid_dim
             convpools.append(ConvPoolBlock(_i_dim, _o_dim, pool_ratio=pool_ratio))
         self.convpools = torch.nn.ModuleList(convpools)
-        self.transformer_encoder = torch.nn.TransformerEncoder(
-            torch.nn.TransformerEncoderLayer(hid_dim * 2 + 1024, nhead=8), num_layers=6)    
-        self.lin1 = torch.nn.Linear(hid_dim * 2 + 1024, hid_dim * 2)
-        #self.lin1 = torch.nn.Linear(hid_dim * 2, hid_dim)
-        #self.lin1 = torch.nn.Linear(1024,hid_dim)
+        # self.transformer_encoder = torch.nn.TransformerEncoder(
+        #     torch.nn.TransformerEncoderLayer(hid_dim * 2 + 1024, nhead=8), num_layers=6)    
+        self.lin1 = torch.nn.Linear(hid_dim*2 + 1024, hid_dim*2)
         self.lin2 = torch.nn.Linear(hid_dim*2, hid_dim)
         self.lin3 = torch.nn.Linear(hid_dim, out_dim)
-        self.label_network1 = GATConv(1,1,num_heads=8,allow_zero_in_degree=True)
+        # self.label_network1 = GATConv(1,1,num_heads=8,allow_zero_in_degree=True)
 
         self.line_new = torch.nn.Linear(hid_dim * 2 + 1024, out_dim)
 
@@ -79,14 +77,15 @@ class SAGNetworkHierarchical(torch.nn.Module):
         feat = F.relu(self.lin2(feat))
         #feat = F.log_softmax(self.lin3(feat), dim=-1)
         feat = self.lin3(feat)
-        feat = feat.t()
-        max_value,_ = torch.max(self.label_network1(label_network,feat),dim=1)
-        feat - F.relu(max_value)
-        feat = feat.t()
+        # feat = feat.t()
+        # max_value,_ = torch.max(self.label_network1(label_network,feat),dim=1)
+        # feat = F.relu(max_value)
+        # feat = feat.t()
         # feat = self.update_parent_features(label_network, feat)
         #feat = self.line_new(final_readout)
-        #feat = torch.sigmoid(feat)
+        # feat = torch.sigmoid(feat)
         
+        # feat: [batch_size, label_num]
         return feat
 
 

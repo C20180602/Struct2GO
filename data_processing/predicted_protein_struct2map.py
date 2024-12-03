@@ -64,6 +64,7 @@ def seq2onehot(seq):
 # 忽略读取AlphaFold文件时没有PDB ID的警告
 warnings.filterwarnings("ignore")
 os.mkdir("../data/proteins_edges")
+# 这里的文件路径并不重要，只需要将所有PDB文件放在一个文件夹下即可
 for path,dir_list,file_list in os.walk("/e/chensq/dag-classify/raw_data/HUMAN/pdb"):  
     for file_name in tqdm(file_list):
         A, S, seqres = _load_cmap(os.path.join(path, file_name),cmap_thresh=10.0)

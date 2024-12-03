@@ -46,7 +46,7 @@ class SAGPool(torch.nn.Module):
 
 class ConvPoolBlock(torch.nn.Module):
     """A combination of GCN layer and SAGPool layer,
-    followed by a concatenated (mean||sum) readout operation.
+    followed by a concatenated (max||sum) readout operation.
     """
     def __init__(self, in_dim:int, out_dim:int, pool_ratio=0.5):
         super(ConvPoolBlock, self).__init__()
@@ -66,5 +66,5 @@ class ConvPoolBlock(torch.nn.Module):
         out = F.relu(self.conv2(graph, out))
         out = torch.reshape(out,(-1,512))
         graph, out, _ = self.pool(graph, out)
-        g_out = torch.cat([self.maxpool(graph, out), self.maxpool(graph, out)], dim=-1)
+        g_out = torch.cat([self.maxpool(graph, out), self.sumpool(graph, out)], dim=-1)
         return graph, out, g_out 
