@@ -16,7 +16,7 @@ class MyDataSet(Dataset):
         seq_feature = self.seq_feature[protein]
         label = self.label[protein]
 
-        return graph, label, seq_feature 
+        return protein, graph, label, seq_feature 
 
     def __len__(self):
         return  len(self.list) 

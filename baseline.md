@@ -88,15 +88,42 @@ test dataset size 1871
 
 ## 返回项目文件夹，开始训练
 这里的-labels_num选项需要根据数据处理的结果进行填写
+
 python train_Struct2GO.py -labels_num 328 -branch 'mf'
+
 python train_Struct2GO.py -labels_num 689 -branch 'bp'
+
 python train_Struct2GO.py -labels_num 284 -branch 'cc'
 
 参数：
+
+节点特征只用了node2vec没加onehot，可能稍差
+
 batch_size=64
+
 lr=1e-4
+
 dropout=0.5
+
 验证集结果：
+
 mf: fmax:0.3822  auc:0.8239  aupr:0.4247  thresh:0.57
+
 bp: fmax:0.3254  auc:0.7638  aupr:0.3157  thresh:0.54
+
 cc: fmax:0.3948  auc:0.8245  aupr:0.4063  thresh:0.75
+
+
+python eval_Struct2GO.py -branch 'mf' -thresh 0.57
+
+python eval_Struct2GO.py -branch 'bp' -thresh 0.54
+
+python eval_Struct2GO.py -branch 'cc' -thresh 0.75
+
+测试集结果：
+
+mf: fmax:0.3777  auc:0.8230  aupr:0.4322  thresh:0.57
+
+bp: fmax:0.3282  auc:0.7634  aupr:0.3249  thresh:0.54
+
+cc: fmax:0.3966  auc:0.8220  aupr:0.4167  thresh:0.75

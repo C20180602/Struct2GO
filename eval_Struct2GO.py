@@ -1,7 +1,9 @@
 import torch
+from torch import nn
 import torch.nn.functional as F
 import argparse
 import numpy as np
+import dgl
 from dgl.dataloading import GraphDataLoader
 from sklearn.metrics import roc_auc_score, roc_curve, auc, precision_score, recall_score, f1_score, average_precision_score
 import pickle
@@ -13,133 +15,121 @@ import warnings
 import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
+from tqdm import tqdm
+import os
+import logging
+import json
 
-
+def create_logger(branch_name):
+    logger = logging.getLogger(branch_name)
+    handler1 = logging.StreamHandler()
+    handler2 = logging.FileHandler(filename=os.path.join('log','test_'+branch_name+'.log'))
+    logger.setLevel(logging.DEBUG)
+    handler1.setLevel(logging.ERROR)
+    handler2.setLevel(logging.DEBUG)
+    formatter = logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s")
+    handler1.setFormatter(formatter)
+    handler2.setFormatter(formatter)
+    logger.addHandler(handler1)
+    logger.addHandler(handler2)
+    return logger
 
 warnings.filterwarnings('ignore')
-Thresholds = list(map(lambda x:round(x*0.01,2), list(range(1,100))))
+
+# TODO 个人认为，测试集不用再枚举thresh了，直接使用验证集得出的最优thresh即可
+Thresholds = [x/100 for x in range(1,100)]
 
 if __name__ == "__main__":
+    
+    device = "cuda:7"
     #参数设置
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('-test_data', '--test_data',type=str,default='/home/jiaops/lyjps/divided_data/mf_test_dataset')
     parser.add_argument('-branch', '--branch',type=str,default='mf')
-    parser.add_argument('-model','--model',type=str,default='/home/jiaops/lyjps/save_models/mymodel_mf_1_0.0005_0.45.pkl')
-    parser.add_argument('-labels_num', '--labels_num',type=int,default=273)
-    parser.add_argument('-label_network', '--label_network', type=str, default='/home/jiaops/lyjps/processed_data/label_mf_network ')
+    parser.add_argument('-thresh', '--thresh',type=float,default=0.5)
     args = parser.parse_args()
-    labels_num = args.labels_num
-    with open(args.test_data,'rb')as f:
+    
+    input_thresh = args.thresh
+    test_data_path = 'divided_data/'+args.branch+'_test_dataset'
+    label_network_path = 'processed_data/label_'+args.branch+'_network'
+    term2idx_path = 'processed_data/'+args.branch+'_term2idx.json'
+    model_path = 'save_models/bestmodel_'+args.branch+'_64_0.0001_0.5.pkl'
+    
+    logger = create_logger(args.branch)
+    
+    with open(test_data_path,'rb') as f:
         test_dataset = pickle.load(f)
-    with open(args.label_network,'rb')as f:
-        label_network=pickle.load(f)
-    model = torch.load(args.model)
+    with open(label_network_path,'rb') as f:
+        label_network = pickle.load(f)
+    with open(term2idx_path,'r') as f:
+        term2idx = json.load(f)
+        idx2term = term2idx.keys()
+    label_network = label_network.to(device)
+    label_topo_order_list = dgl.topological_nodes_generator(label_network)
+    model = torch.load(model_path)
 
-    test_dataloader = GraphDataLoader(dataset=test_dataset, batch_size = 1,drop_last = False, shuffle = True)
-    time = datetime.datetime.now()
-    print(time)
-    print('#########'+args.branch+'###########')
-    print('########start testing###########') 
-
+    batch_size = 64
+    test_dataloader = GraphDataLoader(dataset=test_dataset, batch_size = batch_size, drop_last = False, shuffle = False)
+    criterion = nn.CrossEntropyLoss()
+    logger.info('#########'+args.branch+'###########')
+    logger.info('########start testing###########') 
 
     t_loss = 0
     test_batch_num = 0
     pred = []
     actual = []
-    model.eval()   
-    for batched_graph, labels,sequence_feature  in test_dataloader:
-            logits = model(batched_graph.to('cuda'), sequence_feature.to('cuda'),label_network.to('cuda'))
-            labels = torch.reshape(labels,(-1,labels_num))
-            loss = F.cross_entropy(logits,labels.to('cuda'))
+    protein_list = []
+    model.eval()
+    print("testing")
+    with torch.no_grad():
+        for i, (pids, graphs, labels, seq_feats) in tqdm(enumerate(test_dataloader)):
+            graphs = graphs.to(device)
+            seq_feats = seq_feats.to(device)
+            labels = labels.to(device)
+            labels = torch.squeeze(labels)
+            if len(labels.shape)==1:
+                labels = labels.unsqueeze(0)
+            
+            logits = model(graphs,seq_feats,label_network)
+            logits = F.sigmoid(logits)
+            
+            loss = criterion(logits,labels)
+            
+            protein_list += pids
             t_loss += loss.item()
-            test_batch_num += 1
-            pred.append(torch.sigmoid(logits).tolist())
-            actual.append(labels.tolist())
-            #writer.add_pr_curve('pr_curve',labels,logits,0)
-    test_loss = "{}".format(t_loss / test_batch_num)    
-    #writer.add_scalar('test/loss',test_loss,epoch)
+            pred += logits.tolist()
+            actual += labels.tolist()
+    
+    # 为了保持可控，这里使用传入的thresh来确定最终分类结果
+    assert len(pred) == len(actual)
+    assert len(pred) == len(protein_list)
+    assert len(pred[0]) == len(idx2term)
+    result = {}
+    for i in range(len(pred)):
+        protein = protein_list[i]
+        result[protein] = []
+        y_ = pred[i]
+        y = actual[i]
+        for j,x in enumerate(idx2term):
+            # 寻找新预测出来的标签
+            if y[j] < 1. and y_[j] > input_thresh:
+                result[protein].append(x+f" {y_[j]:.5f}")
+    with open('test_result/'+args.branch+'_result.json','w') as f:
+        json.dump(result,f,indent=4)
+        
+    t_loss /= len(test_dataloader)
     fpr, tpr, th = roc_curve(np.array(actual).flatten(), np.array(pred).flatten(), pos_label=1)
     auc_score = auc(fpr, tpr)
-    
-    auc_values = []
-    actual_array = np.array(actual)
-    pred_array = np.array(pred) 
-    actual_array = actual_array[:,0,:]
-    pred_array = pred_array[:,0,:]
-    n_labels = actual_array.shape[1]
-    for i in range(n_labels):
-        fpr, tpr, _ = roc_curve(actual_array[:, i].flatten(), pred_array[:, i].flatten(), pos_label=1)
-        auc_score = auc(fpr, tpr)
-        auc_values.append(auc_score)
+    aupr = cacul_aupr(np.array(actual).flatten(), np.array(pred).flatten())
 
-    aupr=cacul_aupr(np.array(actual).flatten(), np.array(pred).flatten())
-    aupr_values = []
-    y_true = np.array(actual) 
-    y_scores = np.array(pred)
-    y_true = y_true[:,0,:]
-    y_scores = y_scores[:,0,:]
-    n_labels = y_true.shape[1]
-    for i in range(n_labels):
-        aupr1 = average_precision_score(y_true[:, i], y_scores[:, i])
-        aupr_values.append((1-0.3)*aupr1 + 0.3*aupr)
-
-    score_dict = {}
     each_best_fcore = 0
-    #best_fscore = 0
     each_best_scores = []
-    #writer.add_pr_curve('pr_curve',actual,pred,0,num_thresholds=labels_num)
-    for i in range(len(Thresholds)):
-        f_score,precision, recall  = calculate_performance(actual, pred, label_network,threshold=Thresholds[i])
+    for thresh in tqdm(Thresholds):
+        f_score,precision, recall  = calculate_performance(actual, pred, label_network,threshold=thresh)
         if f_score >= each_best_fcore:
             each_best_fcore = f_score
-            each_best_scores = [Thresholds[i], f_score, recall, precision, auc_score,auc_values,aupr_values]
-            scores = [f_score, recall, precision, auc_score]
-            score_dict[Thresholds[i]] = scores        
-    t, f_score, recall = each_best_scores[0], each_best_scores[1], each_best_scores[2]
-    precision, auc_score = each_best_scores[3], each_best_scores[4] 
-    # auc_values, aupr_values = each_best_scores[5],each_best_scores[6]
-    print('testloss:{},t:{},f_score{}, auc{}, recall{}, precision{},aupr{}'.format(
-        test_loss, t, f_score, auc_score, recall, precision,aupr))  
-    # print('f_score: {}'.format(f_score))
-    # print('auc_values: {}'.format(auc_values))
-    # print('aupr_values: {}'.format(aupr_values))   
-    # df1 = pd.DataFrame(f_score)
-    # df2 = pd.DataFrame(auc_values)
-    # df3 = pd.DataFrame(aupr_values)
-    # df1.to_excel('f_score.xlsx', index=False, engine='openpyxl')
-    # df2.to_excel('auc_values.xlsx', index=False, engine='openpyxl')
-    # df3.to_excel('aupr_values.xlsx', index=False, engine='openpyxl')
-    
-    # bins = [i/10 for i in range(11)]
-    # # 设置柱状图的宽度和位置
-    # width = (bins[1] - bins[0]) / 4  # 使得三个柱子在一个bin内紧密相邻，但是不同bin之间有空隙
-
-
-
-    # # 手动计算每组数据的直方图
-    # hist_data1, _ = np.histogram(f_score, bins=bins)
-    # hist_data2, _ = np.histogram(auc_values, bins=bins)
-    # hist_data3, _ = np.histogram(aupr_values, bins=bins)
-
-    # # 为每组数据设置中心点位置
-    # centers = [(bins[i] + bins[i+1]) / 2 for i in range(len(bins)-1)]
-    # centers1 = [center - width for center in centers]
-    # centers2 = centers
-    # centers3 = [center + width for center in centers]
-
-
-    # # 绘制三组数据的柱状图
-    # plt.bar(centers1, hist_data1, width=width, alpha=0.5, label='f_score', edgecolor='black')
-    # plt.bar(centers2, hist_data2, width=width, alpha=0.5, label='auc_values', edgecolor='black')
-    # plt.bar(centers3, hist_data3, width=width, alpha=0.5, label='aupr_values', edgecolor='black')
-
-    # plt.title('Distribution of BP Test Data Sets')
-    # plt.xlabel('Value')
-    # plt.ylabel('Frequency')
-    # plt.xticks(bins)
-    # plt.legend(loc='upper left')  # 显示图例
-
-    # plt.savefig('histogram3.svg', format='svg')
-
-    # plt.show()
-                
+            each_best_scores = [thresh, f_score, recall, precision]
+    t, f_score, recall, precision = each_best_scores[0], each_best_scores[1], each_best_scores[2], each_best_scores[3]
+    logger.info('loss: {}, thresh: {}, f_score {}'.format(t_loss, t, f_score))
+    logger.info('auc {}, recall {}, precision {},aupr {}'.format(auc_score, recall, precision, aupr))
+    print('loss: {}, thresh: {}, f_score {}'.format(t_loss, t, f_score))
+    print('auc {}, recall {}, precision {},aupr {}'.format(auc_score, recall, precision, aupr))

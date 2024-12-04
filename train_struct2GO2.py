@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 import pickle
-from model.network import SAGNetworkHierarchical,SAGNetworkGlobal
+from model.network import SAGNetworkHierarchical2,SAGNetworkGlobal
 import torch.nn as nn
 import torch.optim as optim
 import dgl
@@ -30,7 +30,7 @@ import os
 def create_logger(branch_name):
     logger = logging.getLogger(branch_name)
     handler1 = logging.StreamHandler()
-    handler2 = logging.FileHandler(filename=os.path.join('log',branch_name+'.log'))
+    handler2 = logging.FileHandler(filename=os.path.join('log',branch_name+'2.log'))
     logger.setLevel(logging.DEBUG)
     handler1.setLevel(logging.ERROR)
     handler2.setLevel(logging.DEBUG)
@@ -50,7 +50,7 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-batch_size', '--batch_size', type=int, default=64,  help="the number of the bach size")
-    parser.add_argument('-learningrate', '--learningrate',type=float,default=1e-4)
+    parser.add_argument('-learningrate', '--learningrate',type=float,default=5e-5)
     parser.add_argument('-dropout', '--dropout',type=float,default=0.5)
     parser.add_argument('-branch', '--branch',type=str,default='mf')
     parser.add_argument('-labels_num', '--labels_num',type=int,default=328)
@@ -70,6 +70,7 @@ if __name__ == "__main__":
     with open(label_network_path,'rb')as f:
         label_network=pickle.load(f)
     label_network = label_network.to(device)
+    label_topo_order_list = dgl.topological_nodes_generator(label_network)
 
     # 载入/设置参数
     epoch_num = 20
@@ -84,7 +85,7 @@ if __name__ == "__main__":
     
     # TODO: 这里的输入特征应该是one-hot(26)+node2vec(30) = 56
     # 但暂时没做特征拼接，先用node2vec特征试试
-    model = SAGNetworkHierarchical(30, 512, labels_num, num_convs=6, pool_ratio=0.75, dropout=dropout).to(device)
+    model = SAGNetworkHierarchical2(30, 512, labels_num, num_convs=6, pool_ratio=0.75, dropout=dropout).to(device)
     optimizer = optim.Adam(model.parameters(), lr=learningrate)
     lr_scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=100, num_training_steps=epoch_num*len(train_dataloader))
     criterion = nn.CrossEntropyLoss()
@@ -102,7 +103,7 @@ if __name__ == "__main__":
         train_loss = 0
         print("training")
         logger.info("training")
-        for i,(pids, graphs, labels, seq_feats) in tqdm(enumerate(train_dataloader)):
+        for i,(graphs, labels, seq_feats) in tqdm(enumerate(train_dataloader)):
             graphs = graphs.to(device)
             seq_feats = seq_feats.to(device)
             labels = labels.to(device)
@@ -111,7 +112,7 @@ if __name__ == "__main__":
                 labels = labels.unsqueeze(0)
             
             optimizer.zero_grad()
-            logits = model(graphs,seq_feats,label_network)
+            logits = model(graphs,seq_feats,label_network,label_topo_order_list)
             
             loss = criterion(logits,labels)
             loss.backward()
@@ -132,7 +133,7 @@ if __name__ == "__main__":
             pred = []
             actual = []
             with torch.no_grad():
-                for i,(pids, graphs, labels, seq_feats) in tqdm(enumerate(valid_dataloader)):
+                for i,(graphs, labels, seq_feats) in tqdm(enumerate(valid_dataloader)):
                     graphs = graphs.to(device)
                     seq_feats = seq_feats.to(device)
                     labels = labels.to(device)
@@ -140,7 +141,7 @@ if __name__ == "__main__":
                     if len(labels.shape)==1:
                         labels = labels.unsqueeze(0)
                     
-                    logits = model(graphs,seq_feats,label_network)
+                    logits = model(graphs,seq_feats,label_network,label_topo_order_list)
                     logits = F.sigmoid(logits)
                     
                     loss = criterion(logits,labels)
@@ -169,7 +170,7 @@ if __name__ == "__main__":
                 best_scores = each_best_scores
                 best_score_dict = score_dict
                 best_aupr = aupr
-                torch.save(model, 'save_models/bestmodel_{}_{}_{}_{}.pkl'.format(args.branch,batch_size,learningrate,dropout))
+                torch.save(model, 'save_models/bestmodel2_{}_{}_{}_{}.pkl'.format(args.branch,batch_size,learningrate,dropout))
             
             thresh, f_score, recall = each_best_scores[0], each_best_scores[1], each_best_scores[2]
             precision, auc_score = each_best_scores[3], each_best_scores[4]

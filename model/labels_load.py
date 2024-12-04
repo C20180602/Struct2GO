@@ -28,6 +28,7 @@ is_a=collections.defaultdict(list)
 part=collections.defaultdict(list)
 ###根据规则来提取go term ，并依据其之间的依赖关系构建图谱
 # 只取用is_a和part_of关系
+# 边的方向：A is_a B  <=>  A -> B
 # 同样，这里的文件也不重要，可以在Gene Ontology上下载
 print("--------------1: go term processing")
 with open('/e/chensq/dag-classify/raw_data/go-basic.obo','r') as fin:
