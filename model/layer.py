@@ -50,6 +50,9 @@ class ConvPoolBlock(torch.nn.Module):
     """
     def __init__(self, in_dim:int, out_dim:int, pool_ratio=0.5):
         super(ConvPoolBlock, self).__init__()
+        self.in_dim = in_dim
+        self.out_dim = out_dim
+        
         self.conv1 = GraphConv(in_dim, out_dim)
         self.conv2 = GraphConv(out_dim, out_dim)
         self.pool = SAGPool(out_dim, ratio=pool_ratio)
@@ -60,11 +63,11 @@ class ConvPoolBlock(torch.nn.Module):
     
     def forward(self, graph, feature):
         out = F.relu(self.conv1(graph, feature))
-        out = torch.reshape(out,(-1,512))
+        out = torch.reshape(out,(-1,self.out_dim))
         out = F.relu(self.conv2(graph, out))
-        out = torch.reshape(out,(-1,512))
+        out = torch.reshape(out,(-1,self.out_dim))
         out = F.relu(self.conv2(graph, out))
-        out = torch.reshape(out,(-1,512))
+        out = torch.reshape(out,(-1,self.out_dim))
         graph, out, _ = self.pool(graph, out)
         g_out = torch.cat([self.maxpool(graph, out), self.sumpool(graph, out)], dim=-1)
         return graph, out, g_out 

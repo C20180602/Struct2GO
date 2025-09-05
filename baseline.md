@@ -1,3 +1,8 @@
+# simple version usage
+0. change pdb-file path in pdb2graph.py and esm2.py to your path
+1. python pdb2graph.py
+2. python esm2.py
+3. python train.py
 # 复现流程(2024.12)
 
 ## 环境与数据

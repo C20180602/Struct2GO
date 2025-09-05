@@ -4,6 +4,8 @@ processed_data/
 divided_data/
 angel-master/
 save_models/
+*.pkl
+*.png
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
