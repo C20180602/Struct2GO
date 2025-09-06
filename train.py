@@ -262,7 +262,7 @@ for ont in ['bp', 'cc', 'mf', 'all']:
 
     # 训练模型
     print("开始训练模型...")
-    train_losses, val_losses = train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, n_epochs=300)
+    train_losses, val_losses = train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, n_epochs=50)
 
     # 绘制训练和验证损失曲线
     plt.figure(figsize=(10, 5))

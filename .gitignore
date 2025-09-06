@@ -6,6 +6,7 @@ angel-master/
 save_models/
 *.pkl
 *.png
+*.pth
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
