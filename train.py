@@ -60,7 +60,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
         model.eval()
         running_loss = 0.0
         with torch.no_grad():
-            for X, G, labels in train_loader:
+            for X, G, labels in val_loader:
                 X = X.to(device)
                 G = G.to(device)
                 labels = labels.to(device)
@@ -284,10 +284,7 @@ for ont in ['bp', 'cc', 'mf', 'all']:
     auc_score, aupr_score, f1_score, thresh = cal_metrics(test_probs, test_labels)
 
     print(f"测试集评估结果:")
-    print(f"AUC: {auc_score:.4f}")
-    print(f"AUPR: {aupr_score:.4f}")
-    print(f"F1 Score: {f1_score:.4f}")
-    print(f"thresh: {thresh:.4f}")
+    print(f"AUC: {auc_score:.4f}   AUPR: {aupr_score:.4f}   F1 Score: {f1_score:.4f}   thresh: {thresh:.4f}")
 
     # 保存模型
     torch.save(model.state_dict(), f'struct2go_{ont}.pth')
