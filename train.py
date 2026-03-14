@@ -4,6 +4,7 @@ import torch.optim as optim
 import pickle as pkl
 import json
 import dgl
+import torchinfo
 from model.network import SAGNetworkHierarchical
 from torch.utils.data import DataLoader, Dataset
 import numpy as np
@@ -256,6 +257,8 @@ for ont in ['bp', 'cc', 'mf', 'all']:
 
     # 初始化模型、损失函数和优化器
     model = SAGNetworkHierarchical(20, 512, n_labels, 2560, num_convs=3, pool_ratio=0.4, dropout=0.5).to(device)
+    with open(f'struct2go_{ont}_summary.txt', 'w') as f:
+        f.write(torchinfo.summary(model).__str__())
     criterion = nn.BCELoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, verbose=True)
